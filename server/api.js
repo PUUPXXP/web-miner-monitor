@@ -606,12 +606,40 @@ export function createApi(ctx) {
     if (!file) return sendError(res, 404, '系统镜像尚未构建（os/dist 中未找到 .iso）');
     const st = fs.statSync(file);
     const info = osImage.info();
+    const name = info.file || path.basename(file);
+
+    // Range 支持：浏览器/下载器可断点续传（1.3 GB 的文件很有用）
+    const range = String(req.headers.range || '');
+    const m = range.match(/^bytes=(\d*)-(\d*)$/);
+    if (m) {
+      let start = m[1] === '' ? null : Number(m[1]);
+      let end = m[2] === '' ? null : Number(m[2]);
+      if (start === null && end !== null) { start = Math.max(0, st.size - end); end = st.size - 1; } // 后缀范围
+      start = start ?? 0;
+      end = end ?? st.size - 1;
+      if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= st.size) {
+        res.writeHead(416, { 'content-range': `bytes */${st.size}` });
+        return res.end();
+      }
+      end = Math.min(end, st.size - 1);
+      res.writeHead(206, {
+        'content-type': 'application/octet-stream',
+        'content-length': end - start + 1,
+        'content-range': `bytes ${start}-${end}/${st.size}`,
+        'content-disposition': contentDisposition(name),
+        'accept-ranges': 'bytes',
+      });
+      if (req.method === 'HEAD') return res.end();
+      return fs.createReadStream(file, { start, end }).pipe(res);
+    }
+
     res.writeHead(200, {
       'content-type': 'application/octet-stream',
       'content-length': st.size,
-      'content-disposition': contentDisposition(info.file || path.basename(file)),
+      'content-disposition': contentDisposition(name),
       'accept-ranges': 'bytes',
     });
+    if (req.method === 'HEAD') return res.end();
     fs.createReadStream(file).pipe(res);
   });
 

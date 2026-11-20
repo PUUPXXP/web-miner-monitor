@@ -23,6 +23,16 @@ CUSTOM="$OS_DIR/live-build/custom/overlay/includes.chroot"
 
 [ -f "$IN" ] || { echo "input ISO not found: $IN"; exit 1; }
 
+# squashfs 压缩算法：与 build.sh 保持一致（低配构建机用 zstd 快很多）
+SQ_COMP="${MM_SQUASHFS:-xz}"
+
+# 转绝对路径：脚本后面会 cd 到工作目录，相对路径会指错地方
+case "$IN" in /*) ;; *) IN="$(readlink -f "$IN")" ;; esac
+case "$OUT" in
+  /*) ;;
+  *) OUT="$(cd "$(dirname "$OUT")" 2>/dev/null && pwd)/$(basename "$OUT")" ;;
+esac
+
 echo "=== 1. 解包 ISO ==="
 rm -rf "$WORK"
 mkdir -p "$WORK"
@@ -164,8 +174,8 @@ for f in opt/mineros/agent/agent.js opt/mineros/shared/miners.js opt/mineros/nod
 done
 [ -x "$ROOT/opt/mineros/node/bin/node" ] && "$ROOT/opt/mineros/node/bin/node" --version || true
 
-echo "=== 5. 重新打包 squashfs ==="
-mksquashfs "$ROOT" "$SQ" -comp xz -noappend -no-progress >/dev/null
+echo "=== 5. 重新打包 squashfs（$SQ_COMP）==="
+mksquashfs "$ROOT" "$SQ" -comp "$SQ_COMP" -noappend -no-progress >/dev/null
 
 echo "=== 6. 重新生成 ISO ==="
 cd "$WORK/iso"
@@ -175,8 +185,9 @@ xorriso -as mkisofs \
   -eltorito-alt-boot -e boot/grub/efi.img -no-emul-boot \
   -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
   -isohybrid-gpt-basdat \
-  -o "$OUT" . >/dev/null 2>&1
+  -o "$OUT" . 2>&1 | tail -5
 
+if [ ! -s "$OUT" ]; then echo "[ERROR] xorriso 打包失败：$OUT 不存在"; exit 6; fi
 sha256sum "$OUT" > "$OUT.sha256"
 echo "=== 完成：$OUT ($(du -h "$OUT" | cut -f1)) ==="
 cat "$OUT.sha256"
