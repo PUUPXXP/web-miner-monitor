@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically rebuild MinerOS ISO when source changes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+AccuracySec=1min
+Persistent=true
+Unit=mineros-autobuild.service
+
+[Install]
+WantedBy=timers.target

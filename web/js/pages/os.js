@@ -27,6 +27,7 @@ export function OsPage(root) {
       h('a', { class: 'btn btn-sm btn-primary', href: '#/updates' }, '⬆ 在线升级'),
     ]));
     el.appendChild(imageCard());
+    el.appendChild(buildCard());
     el.appendChild(upgradeCard());
     el.appendChild(provisionCard());
     el.appendChild(howToCard());
@@ -70,6 +71,117 @@ export function OsPage(root) {
 
   function chip(text) {
     return h('span', { class: 'badge badge-muted', style: { fontSize: '11.5px' } }, text);
+  }
+
+  /** 服务器自动构建：进度、手动触发、日志 */
+  let buildTimer = null;
+  let buildData = null;
+
+  function buildCard() {
+    const card = h('div', { class: 'card mb-20', id: 'buildCard' });
+    paintBuild(card);
+    if (!buildData) {
+      api.osBuild().then((d) => { buildData = d; paintBuild(card); scheduleBuildPoll(card); }).catch(() => {});
+    } else {
+      scheduleBuildPoll(card);
+    }
+    return card;
+  }
+
+  function scheduleBuildPoll(card) {
+    if (buildTimer) clearInterval(buildTimer);
+    const busy = buildData && ['preparing', 'building', 'publishing'].includes(buildData.build?.state);
+    buildTimer = setInterval(async () => {
+      if (!document.body.contains(card)) { clearInterval(buildTimer); return; }
+      try {
+        buildData = await api.osBuild();
+        paintBuild(card);
+        if (buildData.build?.state === 'done' && busy) { await load(); }
+      } catch { /* ignore */ }
+    }, busy ? 5000 : 30000);
+  }
+
+  function paintBuild(card) {
+    clear(card);
+    const b = buildData?.build || { state: 'idle', percent: 0, message: '尚未构建', supported: false };
+    const img = buildData?.image || data;
+    const busy = ['preparing', 'building', 'publishing'].includes(b.state);
+    const failed = b.state === 'error';
+    const supported = b.supported !== false;
+
+    const stateBadge = busy
+      ? h('span', { class: 'badge badge-info' }, `构建中 ${b.percent || 0}%`)
+      : failed
+        ? h('span', { class: 'badge badge-danger' }, '构建失败')
+        : b.state === 'done'
+          ? h('span', { class: 'badge badge-ok' }, '已就绪')
+          : h('span', { class: 'badge badge-muted' }, '空闲');
+
+    card.append(
+      h('div', { class: 'card-title' },
+        h('span', {}, '镜像自动构建'),
+        h('div', { class: 'spacer' }),
+        stateBadge,
+        h('span', { class: 'dim', style: { fontSize: '11.5px', marginLeft: '10px' } }, 'yl2025.cn 服务器'),
+      ),
+      h('div', { class: 'muted', style: { fontSize: '12.5px', marginBottom: '10px' } },
+        supported
+          ? '代码一更新，服务器就会在 10 分钟内自动重建 ISO；也可以点「立即构建」手动触发。构建产物直接出现在上面的下载按钮里。'
+          : '当前服务器未启用自动构建（缺少 /var/lib/mineros-build）。在服务器上执行 deploy/install.sh --with-iso-build 即可开启。'),
+    );
+
+    if (busy || failed) {
+      card.appendChild(h('div', { class: 'bar', style: { marginBottom: '6px' } },
+        h('i', { style: { width: `${b.percent || 0}%`, background: failed ? 'var(--danger)' : undefined } })));
+      card.appendChild(h('div', { class: 'dim', style: { fontSize: '12px', marginBottom: '10px' } },
+        `${b.message || ''}${b.elapsedSec ? ` · 已用 ${Math.floor(b.elapsedSec / 60)} 分 ${b.elapsedSec % 60} 秒` : ''}`));
+    }
+
+    const stats = h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '12px' } },
+      miniStat('当前镜像', img?.available ? `${fmtNum(img.size / 1024 / 1024, 0)} MB` : '无', img?.builtAt ? `构建于 ${fmtAgo(img.builtAt)}` : '—'),
+      miniStat('采集端版本', `v${img?.agentVersion || data?.agentVersion || '-'}`, '随镜像内置'),
+      miniStat('构建方式', supported ? '自动' : '手动', supported ? '每 10 分钟检查源码' : '需启用'),
+    );
+    card.appendChild(stats);
+
+    const btn = h('button', {
+      class: 'btn btn-primary btn-sm',
+      onclick: async (e) => {
+        const t = e.target;
+        t.disabled = true;
+        t.textContent = '已触发…';
+        try {
+          const r = await api.osStartBuild();
+          toast(r.message || '构建已启动', 'ok');
+          buildData = await api.osBuild();
+          paintBuild(card);
+          scheduleBuildPoll(card);
+        } catch (err) {
+          toast(err.message || '触发失败', 'err');
+          t.disabled = false;
+          t.textContent = '立即构建';
+        }
+      },
+    }, '立即构建');
+    if (busy) { btn.disabled = true; btn.textContent = '构建中…'; }
+
+    card.appendChild(h('div', { class: 'btn-row' },
+      btn,
+      h('a', { class: 'btn btn-sm', href: '#/updates' }, '升级包管理'),
+      b.logTail ? h('button', {
+        class: 'btn btn-sm',
+        onclick: (e) => {
+          const box = card.querySelector('.build-log');
+          box.style.display = box.style.display === 'none' ? '' : 'none';
+          e.target.textContent = box.style.display === 'none' ? '查看日志' : '收起日志';
+        },
+      }, '查看日志') : null,
+    ));
+
+    if (b.logTail) {
+      card.appendChild(h('div', { class: 'logview build-log', style: { display: 'none', maxHeight: '260px', marginTop: '10px' } },
+        b.logTail.split('\n').slice(-40).join('\n')));
+    }
   }
 
   /** 在线升级：组件级热更新（不用重装 U 盘）+ 整镜像重刷入口 */
@@ -224,5 +336,5 @@ export function OsPage(root) {
     clear(el);
     el.appendChild(h('div', { class: 'empty' }, h('p', {}, `加载失败：${e.message}`)));
   });
-  return () => {};
+  return () => { if (buildTimer) clearInterval(buildTimer); };
 }

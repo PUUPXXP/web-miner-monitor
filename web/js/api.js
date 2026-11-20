@@ -79,6 +79,8 @@ export const api = {
   saveSettings: (data) => request('PUT', '/api/settings', data),
   server: () => request('GET', '/api/server'),
   os: () => request('GET', '/api/os'),
+  osBuild: () => request('GET', '/api/os/build'),
+  osStartBuild: () => request('POST', '/api/os/build'),
   backup: () => request('GET', '/api/backup'),
   restore: (data) => request('POST', '/api/restore', data),
 

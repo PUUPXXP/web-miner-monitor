@@ -572,6 +572,18 @@ export function createApi(ctx) {
     });
   });
 
+  /** 服务器自动构建：查询进度 */
+  router.get('/api/os/build', async (req, res) => {
+    sendJson(res, 200, { build: osImage.buildStatus(), image: osImage.info({ refresh: true }) });
+  });
+
+  /** 服务器自动构建：手动触发一次 */
+  router.post('/api/os/build', async (req, res) => {
+    const r = await osImage.startBuild();
+    db.addEvent({ level: 'info', category: 'system', message: `手动触发 MinerOS 镜像构建：${r.message}` });
+    sendJson(res, r.ok ? 202 : 409, { ok: r.ok, message: r.message });
+  });
+
   router.get('/api/os/manifest', async (req, res) => {
     // 供 MinerOS 采集端自动更新使用（无需登录）
     const info = osImage.info();

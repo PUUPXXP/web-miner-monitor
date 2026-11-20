@@ -13,7 +13,10 @@ set -eu
 
 cd "${LB_WORKDIR:-.}"
 
-echo ">>> lb config: MinerOS"
+# squashfs 压缩算法：默认 xz（体积小），低配/内存紧张的构建机可用 MM_SQUASHFS=zstd
+SQ_TYPE="${MM_SQUASHFS:-xz}"
+
+echo ">>> lb config: MinerOS（squashfs=$SQ_TYPE）"
 
 lb config \
   --mode debian \
@@ -46,6 +49,7 @@ lb config \
   --initsystem systemd \
   --initramfs live-boot \
   --compression xz \
+  --chroot-squashfs-compression-type "$SQ_TYPE" \
   --image-name "mineros" \
   --iso-application "MinerOS" \
   --iso-publisher "MinerOS" \

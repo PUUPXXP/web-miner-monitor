@@ -1,0 +1,17 @@
+[Unit]
+Description=MinerOS ISO builder (Debian 12 chroot)
+Documentation=file:///opt/web-miner-monitor/docs/MinerOS镜像说明.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/web-miner-monitor/os/build/build-iso-server.sh
+# 构建很吃 CPU/内存，让位给线上服务
+Nice=19
+IOSchedulingClass=idle
+# 构建可能跑 1-2 小时
+TimeoutStartSec=10800
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mineros-build

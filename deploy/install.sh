@@ -25,6 +25,7 @@ ADMIN_USER="admin"
 ADMIN_PASS=""
 PUBLIC_URL=""
 UNINSTALL=0
+WITH_BUILD=0
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 while [ $# -gt 0 ]; do
@@ -36,6 +37,7 @@ while [ $# -gt 0 ]; do
     --public-url) PUBLIC_URL="$2"; shift 2 ;;
     --source-dir) SRC_DIR="$2"; shift 2 ;;
     --uninstall) UNINSTALL=1; shift ;;
+    --with-iso-build) WITH_BUILD=1; shift ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "未知参数: $1"; exit 1 ;;
   esac
@@ -46,9 +48,15 @@ done
 if [ "$UNINSTALL" = "1" ]; then
   echo "==> 停止并删除服务（保留 $DATA_DIR）"
   systemctl disable --now web-miner-monitor 2>/dev/null || true
-  rm -f "$UNIT"
+  systemctl disable --now mineros-autobuild.timer 2>/dev/null || true
+  systemctl stop mineros-build 2>/dev/null || true
+  rm -f "$UNIT" /etc/systemd/system/mineros-build.service \
+        /etc/systemd/system/mineros-autobuild.service \
+        /etc/systemd/system/mineros-autobuild.timer \
+        /etc/sudoers.d/web-miner-monitor-build
   systemctl daemon-reload
   echo "    已卸载。数据目录仍在：$DATA_DIR"
+  echo "    构建缓存仍在：/var/lib/mineros-build（可手动删除）"
   exit 0
 fi
 
@@ -140,6 +148,33 @@ systemctl daemon-reload
 systemctl enable web-miner-monitor >/dev/null 2>&1
 systemctl restart web-miner-monitor
 echo "==> 服务已启动"
+
+# ---------- 6.5 镜像自动构建（可选） ----------
+if [ "$WITH_BUILD" = "1" ]; then
+  echo "==> 启用 MinerOS 镜像自动构建"
+  BUILD_ROOT="/var/lib/mineros-build"
+  mkdir -p "$BUILD_ROOT/logs"
+  chmod 755 "$BUILD_ROOT"
+  chmod 755 "$BUILD_ROOT/logs"
+
+  for u in mineros-build.service mineros-autobuild.service mineros-autobuild.timer; do
+    sed "s#/opt/web-miner-monitor#${APP_DIR}#g" "$APP_DIR/deploy/$u" > "/etc/systemd/system/$u"
+  done
+  chmod +x "$APP_DIR/os/build/build-iso-server.sh" "$APP_DIR/deploy/auto-build.sh" 2>/dev/null || true
+
+  # 允许服务用户触发构建（只放行这两个 unit）
+  SUDO_FILE="/etc/sudoers.d/web-miner-monitor-build"
+  cat > "$SUDO_FILE" <<EOF
+$APP_USER ALL=(root) NOPASSWD: /usr/bin/systemctl start --no-block mineros-build.service, /usr/bin/systemctl start mineros-build.service, /usr/bin/systemctl is-active mineros-build.service
+EOF
+  chmod 440 "$SUDO_FILE"
+  visudo -cf "$SUDO_FILE" >/dev/null 2>&1 || { echo "    sudoers 校验失败，已回滚"; rm -f "$SUDO_FILE"; }
+
+  systemctl daemon-reload
+  systemctl enable --now mineros-autobuild.timer >/dev/null 2>&1
+  echo "    已启用：每 10 分钟检查源码变化，自动重建"
+  echo "    手动构建：systemctl start mineros-build"
+fi
 
 # ---------- 7. 健康检查 ----------
 for i in $(seq 1 40); do

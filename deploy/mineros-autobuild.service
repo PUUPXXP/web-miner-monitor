@@ -1,0 +1,7 @@
+[Unit]
+Description=Check whether MinerOS ISO needs a rebuild
+
+[Service]
+Type=oneshot
+ExecStart=/opt/web-miner-monitor/deploy/auto-build.sh
+Nice=19
