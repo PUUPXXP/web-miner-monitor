@@ -4,8 +4,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import os from 'node:os';
-
-const AGENT_VERSION = '1.1.0';
+import { AGENT_VERSION } from '../shared/version.js';
 
 export class OsImage {
   constructor({ projectRoot, dataDir, log }) {
