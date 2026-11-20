@@ -266,6 +266,19 @@ async function main() {
     return symbol;
   });
 
+  await check('系统镜像页 · 自动构建卡片', async () => {
+    const { OsPage } = await import('../web/js/pages/os.js');
+    const root = document.createElement('div');
+    document.body.appendChild(root);
+    const cleanup = OsPage(root, {});
+    await sleep(1500);
+    const text = root.textContent;
+    if (!text.includes('镜像自动构建')) throw new Error('缺少自动构建卡片');
+    if (!text.includes('立即构建')) throw new Error('缺少构建按钮');
+    cleanup?.();
+    root.remove();
+  });
+
   await check('OS 接口（manifest / rig.conf / tar.gz）', async () => {
     const { api } = await import('../web/js/api.js');
     const os = await api.os();

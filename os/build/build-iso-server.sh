@@ -125,7 +125,28 @@ cleanup_all() {
   command -v umount_chroot >/dev/null 2>&1 && umount_chroot
 }
 trap cleanup_all EXIT
-( while sleep 20; do write_status; done ) &
+# 心跳：只刷新时间戳，不动 phase/percent/message
+# （子 shell 看不到父进程之后修改的变量，所以这里直接改文件）
+( while sleep 20; do
+    python3 - "$STATUS_FILE" <<'PY' 2>/dev/null || true
+import json, sys, os, time
+p = sys.argv[1]
+try:
+    with open(p) as f:
+        d = json.load(f)
+except Exception:
+    raise SystemExit
+if d.get("state") not in ("preparing", "building", "publishing"):
+    raise SystemExit
+d["updatedAt"] = int(time.time() * 1000)
+if d.get("startedAt"):
+    d["elapsedSec"] = int((d["updatedAt"] - d["startedAt"]) / 1000)
+tmp = p + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(d, f, ensure_ascii=False, indent=2)
+os.replace(tmp, p)
+PY
+  done ) &
 HEARTBEAT_PID=$!
 
 # ---------- 0. 环境检查 ----------
@@ -278,6 +299,9 @@ set_status "building" 28 "live-build 构建中"
 PROGRESS_PID=$!
 
 BUILD_RC=0
+# 关键：DEBOOTSTRAP_DIR 是宿主机路径，chroot 里不存在，会在 live-build
+# 自己调 debootstrap 时炸掉，这里必须先清掉
+unset DEBOOTSTRAP_DIR
 chroot "$CHROOT_DIR" /bin/bash -lc \
   "cd '$CHROOT_PROJECT' && MM_SQUASHFS='$SQUASHFS_TYPE' MM_MIRROR='$MIRROR' MM_MIRROR_SEC='$MIRROR_SEC' bash os/build/build.sh" \
   >>"$LOG_FILE" 2>&1 || BUILD_RC=$?
