@@ -15,8 +15,18 @@ cd "${LB_WORKDIR:-.}"
 
 # squashfs 压缩算法：默认 xz（体积小），低配/内存紧张的构建机可用 MM_SQUASHFS=zstd
 SQ_TYPE="${MM_SQUASHFS:-xz}"
+# Debian 源：国外/国际带宽用 deb.debian.org；国内构建机可换镜像加速
+MIRROR="${MM_MIRROR:-http://deb.debian.org/debian}"
+MIRROR="${MIRROR%/}"
+MIRROR_SEC="${MM_MIRROR_SEC:-}"
+if [ -z "$MIRROR_SEC" ]; then
+  case "$MIRROR" in
+    *deb.debian.org*) MIRROR_SEC="http://security.debian.org/debian-security" ;;
+    *)                MIRROR_SEC="${MIRROR%/debian}/debian-security" ;;
+  esac
+fi
 
-echo ">>> lb config: MinerOS（squashfs=$SQ_TYPE）"
+echo ">>> lb config: MinerOS（squashfs=$SQ_TYPE, mirror=$MIRROR）"
 
 lb config \
   --mode debian \
@@ -38,11 +48,11 @@ lb config \
   --updates true \
   --archive-areas "main contrib non-free non-free-firmware" \
   --firmware-chroot true \
-  --mirror-bootstrap "http://deb.debian.org/debian/" \
-  --mirror-chroot "http://deb.debian.org/debian/" \
-  --mirror-chroot-security "http://security.debian.org/debian-security/" \
-  --mirror-binary "http://deb.debian.org/debian/" \
-  --mirror-binary-security "http://security.debian.org/debian-security/" \
+  --mirror-bootstrap "$MIRROR/" \
+  --mirror-chroot "$MIRROR/" \
+  --mirror-chroot-security "$MIRROR_SEC/" \
+  --mirror-binary "$MIRROR/" \
+  --mirror-binary-security "$MIRROR_SEC/" \
   --memtest none \
   --debian-installer none \
   --debian-installer-gui false \

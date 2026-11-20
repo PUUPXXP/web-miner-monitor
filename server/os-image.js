@@ -94,9 +94,11 @@ export class OsImage {
       if (fs.existsSync(this.buildStatusFile)) {
         const s = JSON.parse(fs.readFileSync(this.buildStatusFile, 'utf8'));
         Object.assign(out, s);
+        // 用 startedAt 现算，避免 status.json 更新不及时导致耗时显示不动
+        if (out.startedAt) out.elapsedSec = Math.max(0, Math.round((Date.now() - out.startedAt) / 1000));
         const ageSec = (Date.now() - (out.updatedAt || 0)) / 1000;
         // 构建中但 20 分钟没更新 → 认为卡死
-        if (['preparing', 'building', 'publishing'].includes(out.state) && ageSec > 1200) {
+        if (['preparing', 'building', 'publishing'].includes(out.state) && ageSec > 2700) {
           out.stale = true;
           out.message = `构建可能卡住（${Math.round(ageSec / 60)} 分钟无更新）`;
         }

@@ -30,7 +30,6 @@ DIST_DIR="$PROJECT_DIR/os/dist"
 CHROOT_PROJECT="/build/mineros"
 NODE_VERSION="${NODE_VERSION:-v24.11.0}"
 SQUASHFS_TYPE="${MM_SQUASHFS:-zstd}"   # zstd 比 xz 快很多、内存占用低；镜像略大
-MIRROR="${MM_DEBIAN_MIRROR:-http://deb.debian.org/debian}"
 FORCE=0
 CLEAN_AFTER=1
 for a in "$@"; do
@@ -43,13 +42,33 @@ done
 mkdir -p "$STATE_DIR" "$LOG_DIR" "$DIST_DIR"
 LOG_FILE="$LOG_DIR/build-$(date +%Y%m%d-%H%M%S).log"
 
+# ---------- Debian 源选择（国内服务器直连 deb.debian.org 很慢）----------
+pick_mirror() {
+  if [ -n "${MM_DEBIAN_MIRROR:-}" ]; then echo "$MM_DEBIAN_MIRROR"; return; fi
+  for m in \
+    "http://mirrors.ustc.edu.cn/debian" \
+    "https://mirrors.tuna.tsinghua.edu.cn/debian" \
+    "http://mirrors.aliyun.com/debian" \
+    "http://deb.debian.org/debian" ; do
+    if curl -fsS -m 8 -o /dev/null "$m/dists/bookworm/Release" 2>/dev/null; then echo "$m"; return; fi
+  done
+  echo "http://deb.debian.org/debian"
+}
+MIRROR="$(pick_mirror)"
+MIRROR="${MIRROR%/}"
+case "$MIRROR" in
+  *deb.debian.org*) MIRROR_SEC="http://security.debian.org/debian-security" ;;
+  *)                MIRROR_SEC="${MIRROR%/debian}/debian-security" ;;
+esac
+
 # ---------- 状态输出 ----------
 STATUS_STARTED=$(date +%s)
-set_status() {
-  local phase="$1" pct="$2" msg="$3"
-  local now; now=$(date +%s)
-  python3 - "$STATUS_FILE" "$phase" "$pct" "$msg" "$STATUS_STARTED" "$now" "$LOG_FILE" <<'PY' 2>/dev/null || true
-import json, sys, os, datetime
+CUR_PHASE="preparing"
+CUR_PCT=0
+CUR_MSG="启动"
+write_status() {
+  python3 - "$STATUS_FILE" "$CUR_PHASE" "$CUR_PCT" "$CUR_MSG" "$STATUS_STARTED" "$(date +%s)" "$LOG_FILE" <<'PY' 2>/dev/null || true
+import json, sys, os
 path, phase, pct, msg, started, now, log = sys.argv[1:8]
 d = {
     "state": phase,
@@ -73,10 +92,15 @@ with open(tmp, "w") as f:
 os.replace(tmp, path)
 PY
 }
+set_status() {
+  CUR_PHASE="$1"; CUR_PCT="$2"; CUR_MSG="$3"
+  write_status
+}
 step() { printf '\n\033[36m==> %s\033[0m\n' "$*"; }
 
 fail() {
-  set_status "error" 0 "$1"
+  CUR_PHASE="error"; CUR_PCT=0; CUR_MSG="$1"
+  write_status
   printf '\n\033[31m[FAIL] %s\033[0m\n' "$1" >&2
   exit 1
 }
@@ -93,6 +117,16 @@ fi
 
 START_TS=$(date +%s)
 step "MinerOS 服务器构建开始 $(date -Is)"
+
+# 心跳：即使某一步很久没进展，也让控制台看到 elapsed 在走
+HEARTBEAT_PID=""
+cleanup_all() {
+  [ -n "$HEARTBEAT_PID" ] && kill "$HEARTBEAT_PID" 2>/dev/null || true
+  command -v umount_chroot >/dev/null 2>&1 && umount_chroot
+}
+trap cleanup_all EXIT
+( while sleep 20; do write_status; done ) &
+HEARTBEAT_PID=$!
 
 # ---------- 0. 环境检查 ----------
 command -v python3 >/dev/null || fail "缺少 python3"
@@ -130,15 +164,38 @@ fi
 export DEBOOTSTRAP_DIR="$TOOLS_DIR/debootstrap/usr/share/debootstrap"
 
 # ---------- 3. chroot ----------
+# 用新版 keyring，否则老系统上的 debian-archive-keyring 验不过 bookworm
+KEYRING="$TOOLS_DIR/debian-archive-keyring.gpg"
+if [ ! -s "$KEYRING" ] && [ ! -f "$TOOLS_DIR/.nokeyring" ]; then
+  step "准备 Debian 归档密钥"
+  KDEB=""
+  for v in 2025.1 2024.4 2023.4; do
+    if curl -fsSL -m 60 -o "$TOOLS_DIR/dak.deb" \
+        "$MIRROR/pool/main/d/debian-archive-keyring/debian-archive-keyring_${v}_all.deb" 2>/dev/null; then
+      KDEB="$TOOLS_DIR/dak.deb"; break
+    fi
+  done
+  if [ -n "$KDEB" ]; then
+    rm -rf "$TOOLS_DIR/dak"
+    dpkg-deb -x "$KDEB" "$TOOLS_DIR/dak" 2>/dev/null
+    cp -f "$TOOLS_DIR/dak/usr/share/keyrings/debian-archive-keyring.gpg" "$KEYRING" 2>/dev/null || true
+  fi
+  [ -s "$KEYRING" ] || { echo "    keyring 获取失败，回退 --no-check-gpg"; touch "$TOOLS_DIR/.nokeyring"; }
+fi
+
 if [ ! -x "$CHROOT_DIR/bin/bash" ]; then
-  step "debootstrap Debian 12（首次约 5-10 分钟）"
+  step "debootstrap Debian 12（镜像 $MIRROR，首次约 3-8 分钟）"
   set_status "preparing" 5 "创建 Debian 12 基础系统"
   rm -rf "$CHROOT_DIR"
-  "$DB_EXE" --variant=minbase --include=ca-certificates,curl,gnupg,xz-utils \
-    bookworm "$CHROOT_DIR" "$MIRROR" >>"$LOG_FILE" 2>&1 \
-    || "$DB_EXE" --no-check-gpg --variant=minbase --include=ca-certificates,curl,gnupg,xz-utils \
-         bookworm "$CHROOT_DIR" "$MIRROR" >>"$LOG_FILE" 2>&1 \
-    || fail "debootstrap 失败，见日志"
+  KEY_ARG=""
+  [ -s "$KEYRING" ] && KEY_ARG="--keyring=$KEYRING"
+  if ! "$DB_EXE" $KEY_ARG --variant=minbase --include=ca-certificates,curl,gnupg,xz-utils \
+        bookworm "$CHROOT_DIR" "$MIRROR" >>"$LOG_FILE" 2>&1; then
+    echo "    带 keyring 失败，改用 --no-check-gpg"
+    rm -rf "$CHROOT_DIR"
+    "$DB_EXE" --no-check-gpg --variant=minbase --include=ca-certificates,curl,gnupg,xz-utils \
+      bookworm "$CHROOT_DIR" "$MIRROR" >>"$LOG_FILE" 2>&1 || fail "debootstrap 失败，见日志"
+  fi
 fi
 
 # chroot 内的 DNS
@@ -154,7 +211,6 @@ umount_chroot() {
     mountpoint -q "$m" && umount -l "$m" 2>/dev/null || true
   done
 }
-trap 'umount_chroot' EXIT
 
 # ---------- 4. 构建依赖（装一次即可）----------
 PKG_MARK="$CHROOT_DIR/.build-deps-v2"
@@ -223,7 +279,7 @@ PROGRESS_PID=$!
 
 BUILD_RC=0
 chroot "$CHROOT_DIR" /bin/bash -lc \
-  "cd '$CHROOT_PROJECT' && MM_SQUASHFS='$SQUASHFS_TYPE' bash os/build/build.sh" \
+  "cd '$CHROOT_PROJECT' && MM_SQUASHFS='$SQUASHFS_TYPE' MM_MIRROR='$MIRROR' MM_MIRROR_SEC='$MIRROR_SEC' bash os/build/build.sh" \
   >>"$LOG_FILE" 2>&1 || BUILD_RC=$?
 kill "$PROGRESS_PID" 2>/dev/null || true
 
