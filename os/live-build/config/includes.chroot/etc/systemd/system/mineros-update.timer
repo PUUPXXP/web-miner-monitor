@@ -1,0 +1,12 @@
+[Unit]
+Description=MinerOS Agent 自动更新检查
+After=network-online.target
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,48 @@
+#!/bin/sh
+# ============================================================
+# MinerOS 构建钩子：安装 Node.js 到 /opt/mineros/node
+# 用官方 linux-x64 二进制包，避免 Debian 仓库版本过旧
+# ============================================================
+set -eu
+echo ">>> Node.js hook"
+
+NODE_VERSION="${NODE_VERSION:-v24.11.0}"
+ARCH="linux-x64"
+TARBALL="node-${NODE_VERSION}-${ARCH}.tar.xz"
+URL="https://nodejs.org/dist/${NODE_VERSION}/${TARBALL}"
+
+if [ -x /opt/mineros/node/bin/node ]; then
+  echo "Node 已存在: $(/opt/mineros/node/bin/node --version)"
+  exit 0
+fi
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+echo "下载 $URL"
+for i in 1 2 3; do
+  if curl -fsSL --retry 2 --connect-timeout 20 "$URL" -o "$TMP/$TARBALL"; then break; fi
+  echo "重试 $i ..."
+  sleep 3
+done
+
+if [ ! -s "$TMP/$TARBALL" ]; then
+  echo "Node 下载失败（离线构建请把 $TARBALL 放到 os/build/cache/）"
+  exit 1
+fi
+
+# 校验 sha256（官方 SHASUMS256.txt）
+if curl -fsSL --connect-timeout 15 "https://nodejs.org/dist/${NODE_VERSION}/SHASUMS256.txt" -o "$TMP/SHASUMS256.txt" 2>/dev/null; then
+  EXPECTED="$(grep " $TARBALL\$" "$TMP/SHASUMS256.txt" | awk '{print $1}')"
+  ACTUAL="$(sha256sum "$TMP/$TARBALL" | awk '{print $1}')"
+  if [ -n "$EXPECTED" ] && [ "$EXPECTED" != "$ACTUAL" ]; then
+    echo "Node 校验失败: expected=$EXPECTED actual=$ACTUAL"
+    exit 1
+  fi
+  echo "Node 校验通过"
+fi
+
+tar -xJf "$TMP/$TARBALL" -C /opt/mineros/node --strip-components=1
+chmod -R a+rX /opt/mineros/node
+/opt/mineros/node/bin/node --version
+echo ">>> Node.js 安装完成"

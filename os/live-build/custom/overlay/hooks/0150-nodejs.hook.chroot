@@ -1,0 +1,61 @@
+#!/bin/sh
+# ============================================================
+# MinerOS 构建钩子：安装 Node.js 到 /opt/mineros/node
+# 优先使用构建缓存（os/build/cache/node-*.tar.xz），
+# 其次从 nodejs.org 下载并校验 sha256。
+# ============================================================
+set -eu
+echo ">>> Node.js hook"
+
+NODE_VERSION="${NODE_VERSION:-v24.11.0}"
+ARCH="linux-x64"
+TARBALL="node-${NODE_VERSION}-${ARCH}.tar.xz"
+URL="https://nodejs.org/dist/${NODE_VERSION}/${TARBALL}"
+
+if [ -x /opt/mineros/node/bin/node ]; then
+  echo "Node 已存在: $(/opt/mineros/node/bin/node --version)"
+  exit 0
+fi
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+# 1) 构建缓存（离线/网络不稳时由 build.sh 预下载）
+CACHED=""
+for c in /root/config/cache/node-*.tar.xz /root/node-*.tar.xz /opt/mineros/node-*.tar.xz; do
+  [ -f "$c" ] && CACHED="$c" && break
+done
+
+if [ -n "$CACHED" ]; then
+  echo "使用缓存 Node 包: $CACHED"
+  cp "$CACHED" "$TMP/$TARBALL"
+else
+  echo "下载 $URL"
+  for i in 1 2 3; do
+    if curl -fsSL --retry 2 --connect-timeout 20 "$URL" -o "$TMP/$TARBALL"; then break; fi
+    echo "重试 $i ..."
+    sleep 3
+  done
+fi
+
+if [ ! -s "$TMP/$TARBALL" ]; then
+  echo "警告：Node 下载失败，跳过（采集端将无法运行，可稍后在镜像内手动安装）"
+  exit 0
+fi
+
+# 2) 校验（有官方 SHASUMS256.txt 时）
+if curl -fsSL --connect-timeout 15 "https://nodejs.org/dist/${NODE_VERSION}/SHASUMS256.txt" -o "$TMP/SHASUMS256.txt" 2>/dev/null; then
+  EXPECTED="$(grep " $TARBALL\$" "$TMP/SHASUMS256.txt" | awk '{print $1}')"
+  ACTUAL="$(sha256sum "$TMP/$TARBALL" | awk '{print $1}')"
+  if [ -n "$EXPECTED" ] && [ "$EXPECTED" != "$ACTUAL" ]; then
+    echo "Node 校验失败: expected=$EXPECTED actual=$ACTUAL"
+    exit 1
+  fi
+  echo "Node 校验通过"
+fi
+
+mkdir -p /opt/mineros/node
+tar -xJf "$TMP/$TARBALL" -C /opt/mineros/node --strip-components=1
+chmod -R a+rX /opt/mineros/node
+/opt/mineros/node/bin/node --version
+echo ">>> Node.js 安装完成"

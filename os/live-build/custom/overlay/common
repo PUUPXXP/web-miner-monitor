@@ -1,0 +1,41 @@
+# ============================================================
+#  MinerOS — 矿机专用 Linux 发行版（Debian live-build 配置）
+#  基于 Debian 12 (bookworm)，amd64
+#  构建：os/build/build.sh（WSL2 / Docker / Debian 主机）
+# ============================================================
+
+# 镜像信息
+LB_IMAGE_NAME="mineros"
+LB_VERSION="1.0.0"
+LB_DEBIAN_INSTALLER="false"
+
+# 启动方式：live（从 U 盘/SSD 直接运行，可持久化）
+LB_LIVE="true"
+LB_DEBOOTSTRAP="debootstrap"
+LB_DISTRIBUTION="bookworm"
+LB_PARENT_DISTRIBUTION="bookworm"
+LB_ARCHITECTURES="amd64"
+
+# 包源（含 non-free / non-free-firmware，NVIDIA 驱动需要）
+LB_MIRROR_BOOTSTRAP="http://deb.debian.org/debian/"
+LB_MIRROR_CHROOT="http://deb.debian.org/debian/"
+LB_MIRROR_CHROOT_SECURITY="http://security.debian.org/debian-security/"
+LB_MIRROR_BINARY="http://deb.debian.org/debian/"
+LB_MIRROR_BINARY_SECURITY="http://security.debian.org/debian-security/"
+LB_ARCHIVE_AREAS="main contrib non-free non-free-firmware"
+LB_SECURITY="true"
+LB_UPDATES="true"
+LB_BACKPORTS="false"
+
+# 压缩：xz 体积最小
+LB_COMPRESSION="xz"
+
+# 启动参数：quiet + persistence（U 盘上如有 persistence 分区会自动启用可写持久化）
+LB_BOOTAPPEND_LIVE="boot=live components quiet splash noeject noprompt persistence persistence-encryption=none"
+LB_BOOTAPPEND_FAILSAFE="boot=live components memtest noapic noapm nodma nomce nolapic nomodeset nosmp nosplash vga=normal"
+
+LB_QUIET="false"
+LB_APT_INDICES="false"
+LB_APT_OPTIONS="--yes --no-install-recommends"
+LB_APT_SOURCE_ARCHIVES="false"
+LB_MEMTEST="none"

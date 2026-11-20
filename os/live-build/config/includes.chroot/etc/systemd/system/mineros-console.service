@@ -1,0 +1,15 @@
+[Unit]
+Description=MinerOS 本地 Web 控制台（http://<矿机IP>:4000）
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/mineros/node/bin/node /opt/mineros/tools/lan-console.js --port 4000
+Restart=always
+RestartSec=5
+Environment=MM_CONFIG=/etc/mineros/agent.json
+SyslogIdentifier=mineros-console
+
+[Install]
+WantedBy=multi-user.target

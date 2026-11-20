@@ -1,0 +1,23 @@
+{
+  "name": "web-miner-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "轻量级 Windows 矿机监控与远程管理系统（门罗 XMR / Pearl PRL），Hive OS 风格 Web 控制台，零第三方依赖",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "server": "node server/app.js",
+    "agent": "node agent/agent.js",
+    "agent:check": "node agent/agent.js --check",
+    "demo": "node scripts/demo-rigs.js",
+    "os:bundle": "node scripts/build-os-bundle.js",
+    "update:pkg": "node scripts/make-update-package.js",
+    "test": "node --test tests/",
+    "test:e2e": "node tests/e2e.mjs",
+    "test:update": "node tests/update-e2e.mjs",
+    "test:os": "node tests/os-verify.mjs"
+  },
+  "license": "MIT"
+}

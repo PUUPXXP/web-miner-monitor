@@ -1,0 +1,10 @@
+firmware-linux-free
+firmware-linux-nonfree
+firmware-realtek
+firmware-iwlwifi
+firmware-atheros
+firmware-brcm80211
+firmware-misc-nonfree
+network-manager
+wireless-regdb
+wpasupplicant

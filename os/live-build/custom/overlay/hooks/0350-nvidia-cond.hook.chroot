@@ -1,0 +1,16 @@
+#!/bin/sh
+# ============================================================
+# MinerOS chroot hook: NVIDIA persistence daemon only on real GPUs
+# (In VMs / AMD-only rigs the service would fail at boot.)
+# ============================================================
+set -eu
+
+if [ -f /lib/systemd/system/nvidia-persistenced.service ]; then
+  mkdir -p /etc/systemd/system/nvidia-persistenced.service.d
+  cat > /etc/systemd/system/nvidia-persistenced.service.d/mineros.conf <<'EOF'
+[Unit]
+# 没有 NVIDIA 设备时不要启动（VM / AMD 矿机）
+ConditionPathExistsGlob=/dev/nvidia[0-9]*
+EOF
+  echo "nvidia-persistenced condition installed"
+fi

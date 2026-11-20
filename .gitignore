@@ -1,0 +1,47 @@
+# ───────── 依赖 ─────────
+node_modules/
+.pnpm-store/
+.tools/node_modules/
+.tools/browsers/
+
+# ───────── 运行时数据（含数据库、管理员密码、日志）─────────
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# ───────── 采集端本地状态 / 矿工二进制 ─────────
+agent/agent-state.json
+agent/backup/
+agent/logs/
+agent/miners/
+
+# ───────── 系统镜像与构建产物 ─────────
+os/dist/*.iso
+os/dist/*.sha256
+os/dist/*.tar.gz
+os/dist/os-image.json
+os/dist/rig-*.conf
+os/build/.lbwork/
+os/build/.lbtmp/
+os/build/cache/
+os/build/*.log
+
+# ───────── 升级包（发布物，体积大）─────────
+updates/agent/*
+updates/miner/*
+updates/system/*
+!updates/README.md
+
+# ───────── 测试 / 临时产物 ─────────
+tests/.work/
+tests/.work-update/
+*.log
+*.tmp
+*.bak
+
+# ───────── 系统文件 ─────────
+Thumbs.db
+Desktop.ini
+.DS_Store

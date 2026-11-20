@@ -1,0 +1,15 @@
+[Unit]
+Description=MinerOS local web console (http://<rig-ip>:4000)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/mineros/node/bin/node /opt/mineros/tools/lan-console.js --port 4000
+Restart=always
+RestartSec=5
+Environment=MM_CONFIG=/etc/mineros/agent.json
+SyslogIdentifier=mineros-console
+
+[Install]
+WantedBy=multi-user.target

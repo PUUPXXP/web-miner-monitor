@@ -1,0 +1,14 @@
+[Unit]
+Description=MinerOS boot provisioning (read rig.conf from USB, restore data partition)
+DefaultDependencies=no
+After=local-fs.target
+Before=mineros-agent.service mineros-console.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/mineros-firstboot.sh
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

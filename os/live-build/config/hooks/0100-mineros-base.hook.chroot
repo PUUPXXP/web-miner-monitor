@@ -1,0 +1,154 @@
+#!/bin/sh
+# ============================================================
+# MinerOS 构建钩子：基础系统定制
+# 在 chroot 中执行（build-hooks 阶段）
+# ============================================================
+set -eu
+echo ">>> MinerOS base hook"
+
+# ---------- 时区 / 语言 ----------
+ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+echo "Asia/Shanghai" > /etc/timezone
+sed -i 's/^# *\(en_US.UTF-8\|zh_CN.UTF-8\)/\1/' /etc/locale.gen 2>/dev/null || true
+locale-gen 2>/dev/null || true
+echo 'LANG=en_US.UTF-8' > /etc/default/locale
+
+# ---------- 主机名 / hosts ----------
+echo "mineros" > /etc/hostname
+cat > /etc/hosts <<'EOF'
+127.0.0.1 localhost
+127.0.1.1 mineros
+::1 localhost ip6-localhost ip6-loopback
+EOF
+
+# ---------- 用户 ----------
+# 矿机控制台使用 root 自动登录；同时保留一个 miner 用户供 SSH 日常使用
+if ! id miner >/dev/null 2>&1; then
+  useradd -m -s /bin/bash -G sudo,video,render miner
+fi
+# 默认密码：mineros（首次登录请修改）
+echo 'root:mineros' | chpasswd
+echo 'miner:mineros' | chpasswd 2>/dev/null || true
+
+# ---------- 目录与权限 ----------
+mkdir -p /opt/mineros/agent /opt/mineros/shared /opt/mineros/node /opt/mineros/miners \
+         /opt/mineros/tools /var/lib/mineros /var/log/mineros /etc/mineros
+chmod 755 /opt/mineros /opt/mineros/miners
+chmod 700 /etc/mineros
+chmod 755 /usr/local/bin/mineros-*.sh
+
+# ---------- 采集端代码（构建时从项目目录拷入，见 copy-agent.hook.chroot）----------
+if [ -d /tmp/agent-src ]; then
+  cp -a /tmp/agent-src/agent/. /opt/mineros/agent/
+  cp -a /tmp/agent-src/shared/. /opt/mineros/shared/
+  cp -a /tmp/agent-src/os/tools/. /opt/mineros/tools/ 2>/dev/null || true
+  echo "1.1.0" > /opt/mineros/VERSION
+  rm -rf /tmp/agent-src
+fi
+chmod -R a+r /opt/mineros
+
+# ---------- SSH ----------
+cat > /etc/ssh/sshd_config.d/mineros.conf <<'EOF'
+Port 22
+PermitRootLogin yes
+PasswordAuthentication yes
+X11Forwarding no
+ClientAliveInterval 30
+EOF
+
+# ---------- NetworkManager（有线 + WiFi 统一管理） ----------
+mkdir -p /etc/NetworkManager/conf.d
+cat > /etc/NetworkManager/conf.d/mineros.conf <<'EOF'
+[main]
+dns=systemd-resolved
+[device]
+wifi.scan-rand-mac-address=no
+[connection]
+connection.autoconnect-retries=0
+EOF
+systemctl enable NetworkManager.service 2>/dev/null || true
+
+# ---------- 关闭不需要的服务（省资源） ----------
+for svc in bluetooth.service cups.service avahi-daemon.service ModemManager.service; do
+  systemctl disable "$svc" 2>/dev/null || true
+  systemctl mask "$svc" 2>/dev/null || true
+done
+
+# ---------- 控制台自动登录 ----------
+mkdir -p /etc/systemd/system/getty@tty1.service.d
+cat > /etc/systemd/system/getty@tty1.service.d/autologin.conf <<'EOF'
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
+EOF
+
+# ---------- systemd 目标 ----------
+systemctl enable mineros-firstboot.service mineros-agent.service mineros-console.service mineros-update.timer 2>/dev/null || true
+# 面板占用 tty1，禁用 getty@tty1（面板自己管）
+systemctl disable getty@tty1.service 2>/dev/null || true
+
+# ---------- 内核参数（矿机优化） ----------
+cat > /etc/sysctl.d/99-mineros.conf <<'EOF'
+# 大页（RandomX 用）
+vm.nr_hugepages=1200
+# 网络
+net.core.somaxconn=1024
+net.ipv4.tcp_fin_timeout=15
+# 降低 swap 倾向
+vm.swappiness=10
+# 允许非 root 读 nvidia 设备（采集端以 root 运行，可选）
+kernel.perf_event_paranoid=2
+EOF
+
+# ---------- 登录提示 ----------
+cat > /etc/profile.d/mineros.sh <<'EOF'
+#!/bin/sh
+if [ -f /etc/mineros-release ]; then
+  cat /etc/mineros-release 2>/dev/null
+  echo "本地控制台: http://$(hostname -I 2>/dev/null | awk '{print $1}'):4000"
+  echo "完整管理请访问服务器控制台；执行 'mineros-status' 查看状态。"
+  echo ""
+fi
+EOF
+chmod 644 /etc/profile.d/mineros.sh
+
+# ---------- 状态命令 ----------
+cat > /usr/local/bin/mineros-status <<'EOF'
+#!/bin/sh
+# 查看 MinerOS 状态
+echo "=== MinerOS ==="
+cat /etc/mineros-release 2>/dev/null
+echo ""
+echo "=== 服务 ==="
+systemctl is-active mineros-agent.service mineros-console.service mineros-firstboot.service 2>/dev/null | paste -sd' ' -
+echo ""
+echo "=== GPU ==="
+nvidia-smi --query-gpu=index,name,temperature.gpu,fan.speed,utilization.gpu,power.draw,power.limit,memory.used,memory.total --format=csv,noheader 2>/dev/null || echo "nvidia-smi 不可用"
+echo ""
+echo "=== 最近日志 ==="
+tail -n 15 /var/log/mineros/agent.log 2>/dev/null || journalctl -u mineros-agent -n 15 --no-pager 2>/dev/null
+EOF
+chmod 755 /usr/local/bin/mineros-status
+
+# ---------- 持久化配置（live-boot）----------
+mkdir -p /etc/live
+cat > /etc/live/persistence.conf <<'EOF'
+# 这些目录在可写介质上持久化
+/etc/mineros
+/var/lib/mineros
+/var/log/mineros
+/opt/mineros/miners
+EOF
+
+# ---------- 可写目录（live 根是只读的，用 tmpfs 保证采集端可写）----------
+# 采集端需要写状态文件、矿工日志；首次启动脚本会尝试挂载 MINEROS-DATA 分区到 /data
+# 再把这些目录链接过去，从而实现「重刷镜像不丢配置」。
+cat > /etc/fstab <<'EOF'
+# MinerOS live: 保证采集端可写（若 /data 数据分区存在，首启脚本会改挂到 /data）
+tmpfs /var/lib/mineros tmpfs mode=0755,nosuid,nodev,size=64M 0 0
+tmpfs /var/log/mineros tmpfs mode=0755,nosuid,nodev,size=32M 0 0
+tmpfs /etc/mineros tmpfs mode=0700,nosuid,nodev,size=8M 0 0
+EOF
+mkdir -p /var/lib/mineros /var/log/mineros /etc/mineros
+
+echo ">>> base hook 完成"

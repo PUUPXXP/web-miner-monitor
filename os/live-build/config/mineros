@@ -1,0 +1,26 @@
+# ============================================================
+#  MinerOS 构建专用
+# ============================================================
+
+LB_DEBIAN_INSTALLER="false"
+LB_ISO_PREPARER="MinerOS build system"
+LB_ISO_PUBLISHER="MinerOS"
+LB_ISO_APPLICATION="MinerOS"
+LB_ISO_VOLUME="MINEROS"
+LB_ISO_SIZE="4096"
+
+# 引导器：BIOS(isolinux) + UEFI(grub-efi)，兼容新旧矿机主板
+LB_BOOTLOADER="isolinux"
+LB_BOOTLOADERS="isolinux grub-efi"
+LB_EFI_BOOTLOADER="grub-efi"
+LB_EFI_PARTITION="true"
+LB_EFI_PARTITION_TYPE="fat32"
+LB_EFI_PARTITION_SIZE="64"
+
+# 持久化（U 盘上存在 persistence 分区时生效）
+LB_PERSISTENCE="true"
+LB_PERSISTENCE_TYPE="partition"
+LB_PERSISTENCE_LABEL="persistence"
+
+LB_MEMTEST="none"
+LB_IMAGE_SIGNATURE="false"

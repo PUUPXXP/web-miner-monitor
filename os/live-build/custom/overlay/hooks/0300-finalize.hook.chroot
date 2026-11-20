@@ -1,0 +1,49 @@
+#!/bin/sh
+# ============================================================
+# MinerOS 构建钩子：收尾（权限、清理、版本文件）
+# ============================================================
+set -eu
+echo ">>> Finalize hook"
+
+# 采集端代码就位检查
+if [ -f /opt/mineros/agent/agent.js ]; then
+  echo "采集端已内置: $(wc -l < /opt/mineros/agent/agent.js) 行"
+else
+  echo "警告：/opt/mineros/agent/agent.js 不存在（首启时会从服务器下载）"
+fi
+
+# 所有脚本可执行
+chmod 755 /usr/local/bin/mineros-*.sh /usr/local/bin/mineros-status 2>/dev/null || true
+chmod 644 /etc/systemd/system/mineros-*.service /etc/systemd/system/mineros-*.timer 2>/dev/null || true
+
+# 清理 apt 缓存与临时文件，缩小镜像
+apt-get clean
+rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /root/.cache 2>/dev/null || true
+
+# 日志文件预创建（持久化目录需要）
+touch /var/log/mineros/agent.log /var/log/mineros-firstboot.log 2>/dev/null || true
+
+# 版本标记
+cat > /etc/mineros/version <<EOF
+MINEROS_VERSION=1.0.0
+BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+BASED_ON=Debian 12 bookworm amd64
+EOF
+
+# 关闭 motd 里的 Debian 广告，换成 MinerOS 信息
+cat > /etc/motd <<'EOF'
+
+  ⛏  MinerOS 1.0.0  —  矿机专用 Linux（Debian 12 base）
+
+  本地控制台 : http://<本机IP>:4000
+  状态查看   : mineros-status
+  服务管理   : systemctl status mineros-agent
+  配置       : /etc/mineros/agent.json
+  矿工目录   : /opt/mineros/miners/
+  日志       : /var/log/mineros/agent.log
+
+  默认账号 root / mineros（首次登录请修改：passwd）
+
+EOF
+
+echo ">>> Finalize hook 完成"

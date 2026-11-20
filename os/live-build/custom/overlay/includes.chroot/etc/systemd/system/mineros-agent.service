@@ -1,0 +1,30 @@
+[Unit]
+Description=MinerOS Agent (mining rig monitor)
+Documentation=file:///opt/mineros/README.md
+After=network-online.target mineros-firstboot.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/mineros
+Environment=NODE_ENV=production
+Environment=MM_CONFIG=/etc/mineros/agent.json
+Environment=MM_WORK_DIR=/var/lib/mineros
+Environment=MM_LOG_DIR=/var/log/mineros
+Environment=PATH=/opt/mineros/node/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+CapabilityBoundingSet=CAP_SYS_ADMIN CAP_SYS_RAWIO CAP_DAC_OVERRIDE CAP_KILL CAP_NET_ADMIN
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=20
+ExecStart=/opt/mineros/node/bin/node /opt/mineros/agent/agent.js --config /etc/mineros/agent.json
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mineros-agent
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+{
+  "host": "0.0.0.0",
+  "port": 8787,
+  "dataDir": "data",
+  "adminUser": "admin",
+  "adminPassword": "",
+  "https": false,
+  "publicUrl": "http://192.168.1.10:8787",
+  "agentAutoRegister": true
+}

@@ -1,0 +1,20 @@
+[Unit]
+Description=MinerOS console status panel (tty1: IP / GPU / miner)
+After=mineros-agent.service
+Wants=mineros-agent.service
+
+[Service]
+Type=simple
+ExecStart=/opt/mineros/node/bin/node /opt/mineros/tools/status-panel.js --tty /dev/tty1
+Restart=always
+RestartSec=10
+StandardInput=tty
+StandardOutput=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+SyslogIdentifier=mineros-panel
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,52 @@
+#!/bin/sh
+# ============================================================
+# MinerOS 构建钩子：NVIDIA 内核模块（DKMS 预编译）
+# Debian 的 nvidia-driver 依赖 DKMS 在目标内核上编译；
+# live 系统不能联网编译，所以在这里针对镜像内核预编译。
+# 失败不阻断构建（AMD 机器/无 N 卡也能用），但会记录警告。
+# ============================================================
+set -u
+echo ">>> NVIDIA DKMS hook"
+
+if ! command -v dkms >/dev/null 2>&1; then
+  echo "警告：未安装 dkms，跳过 NVIDIA 内核模块编译"
+  exit 0
+fi
+
+KERNELS="$(ls -1 /lib/modules 2>/dev/null | grep -v '^$' || true)"
+if [ -z "$KERNELS" ]; then
+  echo "警告：/lib/modules 为空，跳过"
+  exit 0
+fi
+
+echo "目标内核: $KERNELS"
+for K in $KERNELS; do
+  echo "--- 编译内核模块 $K ---"
+  if dkms status | grep -q "nvidia.*$K"; then
+    echo "已存在 $K 的 nvidia 模块"
+    continue
+  fi
+  dkms autoinstall -k "$K" 2>&1 | sed 's/^/    /' || {
+    echo "警告：内核 $K 的 NVIDIA 模块编译失败（不影响 AMD 使用）"
+    continue
+  }
+  if ! modinfo -k "$K" nvidia >/dev/null 2>&1; then
+    echo "警告：modinfo 未找到 $K 的 nvidia，回退到全部模块编译"
+  fi
+done
+
+# 写入 modprobe 配置：加载 nvidia 时同时加载 DRM 模式
+mkdir -p /etc/modprobe.d
+cat > /etc/modprobe.d/nvidia-mineros.conf <<'EOF'
+options nvidia NVreg_PreserveVideoMemoryAllocations=1
+options nvidia-drm modeset=1
+EOF
+
+# 确保 initramfs 包含 nvidia 模块
+if command -v update-initramfs >/dev/null 2>&1; then
+  for K in $KERNELS; do
+    update-initramfs -u -k "$K" >/dev/null 2>&1 || true
+  done
+fi
+
+echo ">>> NVIDIA hook 完成"

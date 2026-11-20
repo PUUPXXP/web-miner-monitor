@@ -1,0 +1,11 @@
+[Unit]
+Description=MinerOS Agent 自动更新（从服务器拉取新版本）
+After=network-online.target mineros-agent.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/mineros-update.sh
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
