@@ -10,6 +10,39 @@ export class NetworkStats {
     this.fetching = null;
   }
 
+  /** CoinLore 聚合行情兜底（国内机房可访问；id=28 为 Monero） */
+  async coinloreTicker(id) {
+    try {
+      const r = await fetch(`https://api.coinlore.net/api/ticker/?id=${id}`, {
+        headers: { accept: 'application/json', 'user-agent': 'web-miner-monitor/1.0' },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!r.ok) return null;
+      const j = await r.json();
+      const t = Array.isArray(j) ? j[0] : null;
+      if (!t || !num(t.price_usd)) return null;
+      return { usd: num(t.price_usd), change24h: num(t.percent_change_24h), source: 'coinlore' };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Gate.io 公开行情兜底（CoinGecko 在部分机房不可达） */
+  async gateTicker(pair) {    try {
+      const r = await fetch(`https://api.gateio.ws/api/v4/spot/tickers?currency_pair=${pair}`, {
+        headers: { accept: 'application/json', 'user-agent': 'web-miner-monitor/1.0' },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!r.ok) return null;
+      const j = await r.json();
+      const t = Array.isArray(j) ? j[0] : null;
+      if (!t || !num(t.last)) return null;
+      return { usd: num(t.last), change24h: num(t.change_percentage) };
+    } catch {
+      return null;
+    }
+  }
+
   async refresh(force = false) {
     if (!force && now() - this.cache.t < PRICE_TTL) return this.cache;
     if (this.fetching) return this.fetching;
@@ -33,6 +66,11 @@ export class NetworkStats {
       } catch (e) {
         this.log?.warn?.(`价格获取失败: ${e.message}`);
       }
+      // XMR 价格兜底：CoinGecko 在部分网络（如中国大陆机房）不可达，改用 CoinLore 聚合行情
+      if (!out.price.XMR) {
+        const c = await this.coinloreTicker('28');
+        if (c) out.price.XMR = c;
+      }
       // 门罗网络算力/难度/高度
       try {
         const r = await fetch('https://moneroblocks.info/api/get_stats', {
@@ -50,20 +88,10 @@ export class NetworkStats {
         }
       } catch { /* 忽略 */ }
       // Pearl 价格：优先 CoinGecko（若可用），否则 Gate.io 公开行情
+      // Pearl 价格：优先 CoinGecko（若可用），否则 Gate.io 公开行情
       if (!out.price.PRL) {
-        try {
-          const r = await fetch('https://api.gateio.ws/api/v4/spot/tickers?currency_pair=PRL_USDT', {
-            headers: { accept: 'application/json', 'user-agent': 'web-miner-monitor/1.0' },
-            signal: AbortSignal.timeout(8000),
-          });
-          if (r.ok) {
-            const j = await r.json();
-            const t = Array.isArray(j) ? j[0] : null;
-            if (t && num(t.last)) {
-              out.price.PRL = { usd: num(t.last), change24h: num(t.change_percentage) };
-            }
-          }
-        } catch { /* 忽略 */ }
+        const g = await this.gateTicker('PRL_USDT');
+        if (g) out.price.PRL = g;
       }
       // Pearl 网络数据（MiningPoolStats 合成了算力/难度/高度/价格）
       try {
