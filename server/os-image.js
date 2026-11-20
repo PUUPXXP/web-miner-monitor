@@ -55,6 +55,11 @@ export class OsImage {
         out.file = path.basename(file);
         out.size = st.size;
         out.builtAt = meta.builtAt || st.mtimeMs;
+        // 元数据里是 ISO 字符串，转成时间戳（前端按时间戳格式化）
+        if (typeof out.builtAt === 'string') {
+          const parsed = Date.parse(out.builtAt);
+          if (!Number.isNaN(parsed)) out.builtAt = parsed;
+        }
         const shaPath = `${file}.sha256`;
         if (fs.existsSync(shaPath)) {
           out.sha256 = fs.readFileSync(shaPath, 'utf8').trim().split(/\s+/)[0];
