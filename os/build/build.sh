@@ -181,6 +181,11 @@ build_once() {
     cp "$CUSTOM/includes.chroot/etc/resolv.conf" "$WORK/chroot/etc/resolv.conf" 2>/dev/null \
       || cp /etc/resolv.conf "$WORK/chroot/etc/resolv.conf" 2>/dev/null || true
   fi
+  # 上一次失败可能删掉了 .build，缺 config 阶段 lb build 会直接退出
+  if [ ! -f "$WORK/.build/config" ]; then
+    log "重跑 lb config（补齐 .build/config 阶段）…"
+    ( cd "$WORK" && bash "$HERE/lb-config.sh" ) || log "lb config 失败（继续尝试）"
+  fi
   if [ "$NO_ISO" = "1" ]; then
     ( cd "$WORK" && lb build --no-binary )
   else

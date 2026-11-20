@@ -282,16 +282,28 @@ mount_chroot
 step "live-build 构建（这一步最久，40-90 分钟）"
 set_status "building" 28 "live-build 构建中"
 
-# 后台把 live-build 阶段名映射成进度
+# 后台把 live-build 阶段名映射成进度（解析本脚本的日志）
 (
   LAST=0
   while sleep 15; do
-    if [ -f "$CHROOT_DIR$CHROOT_PROJECT/os/build/.lbwork/build.log" ]; then
-      STAGE=$(grep -oE 'lb_(chroot|binary)_[a-z-]+' "$CHROOT_DIR$CHROOT_PROJECT/os/build/.lbwork/build.log" 2>/dev/null | tail -1)
-      N=$(grep -cE '^\[[0-9]{4}-' "$CHROOT_DIR$CHROOT_PROJECT/os/build/.lbwork/build.log" 2>/dev/null || echo 0)
-      PCT=$(( 28 + (N > 55 ? 55 : N) ))
-      [ "$PCT" -lt 28 ] && PCT=28
-      set_status "building" "$PCT" "构建中：${STAGE:-准备}"
+    if [ -f "$LOG_FILE" ]; then
+      STAGE=$(grep -oE 'lb_(chroot|binary)_[a-z-]+' "$LOG_FILE" 2>/dev/null | tail -1)
+      case "$STAGE" in
+        lb_bootstrap*)                  P=32 ;;
+        lb_chroot_archives)             P=38 ;;
+        lb_chroot_package-lists)        P=42 ;;
+        lb_chroot_install-packages)     P=52 ;;
+        lb_chroot_preseed)              P=62 ;;
+        lb_chroot_hooks)                P=68 ;;
+        lb_chroot_linux-image)          P=72 ;;
+        lb_binary_rootfs)               P=80 ;;
+        lb_binary_linux-image)          P=84 ;;
+        lb_binary_syslinux|lb_binary_grub*) P=87 ;;
+        lb_binary_iso|lb_binary_zsync*) P=90 ;;
+        *)                              P=$LAST ;;
+      esac
+      [ "$P" -ge "$LAST" ] && LAST="$P"
+      set_status "building" "$LAST" "构建中：${STAGE:-准备}"
     fi
     kill -0 $$ 2>/dev/null || break
   done
@@ -310,6 +322,18 @@ kill "$PROGRESS_PID" 2>/dev/null || true
 if [ "$BUILD_RC" != "0" ]; then
   umount_chroot
   fail "live-build 构建失败（退出码 $BUILD_RC），见 $LOG_FILE"
+fi
+
+# ---------- 7.4 腾空间 ----------
+# live-build 跑完后 .lbwork/chroot 就没用了（但它占 4-5 GB）；
+# 后处理要解包 squashfs，峰值需要 10 GB 以上，所以空间不够时先删掉
+LB_CHROOT="$CHROOT_DIR$CHROOT_PROJECT/os/build/.lbwork/chroot"
+if [ -d "$LB_CHROOT" ]; then
+  FREE_NOW=$(df -BG --output=avail "$BUILD_ROOT" | tail -1 | tr -dc '0-9')
+  if [ "${FREE_NOW:-0}" -lt 14 ]; then
+    step "释放 live-build 中间 chroot（腾空间，当前剩余 ${FREE_NOW}GB）"
+    rm -rf "$LB_CHROOT" 2>/dev/null || true
+  fi
 fi
 
 # ---------- 7.5 后处理（补 Node / systemd / 首启脚本，重打包 ISO）----------
