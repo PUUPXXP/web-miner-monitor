@@ -333,6 +333,7 @@ node scripts/demo-rigs.js
 
 - [`docs/采集端使用说明.md`](docs/采集端使用说明.md) — 部署、排错、矿工放置
 - [`docs/挖矿知识与参数.md`](docs/挖矿知识与参数.md) — 两个币种的算法、矿池、矿工参数、API 字段、收益公式
+- [`docs/部署到服务器.md`](docs/部署到服务器.md) — 一键装到 Ubuntu/Debian 服务器、systemd、HTTPS、防火墙
 - [`docs/在线升级与币种扩展.md`](docs/在线升级与币种扩展.md) — 在线升级中心、升级包制作、下发与回滚、新增币种、整镜像重刷
 
 ---

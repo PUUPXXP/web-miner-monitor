@@ -1,0 +1,44 @@
+# 可选：用 nginx 在 32001 上提供 HTTPS（给控制台加 TLS）
+#
+# 适用场景：服务器已有域名和 Let's Encrypt 证书，想避免明文 HTTP 传密码。
+#
+# 做法：
+#   1) 把应用改到本机 32002：改 /etc/web-miner-monitor.env 里 MM_PORT=32002，MM_HOST=127.0.0.1
+#      systemctl restart web-miner-monitor
+#   2) 本文件复制到 /etc/nginx/sites-enabled/miner.conf，替换域名与证书路径
+#   3) nginx -t && systemctl reload nginx
+#
+# 之后访问：https://你的域名:32001
+
+server {
+    listen 32001 ssl http2;
+    listen [::]:32001 ssl http2;
+    server_name your.domain.com;
+
+    ssl_certificate     /etc/letsencrypt/live/your.domain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/your.domain.com/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_session_cache   shared:SSL:10m;
+
+    client_max_body_size 512m;   # 升级包上传
+
+    location / {
+        proxy_pass         http://127.0.0.1:32002;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+    }
+
+    # 实时推送（WebSocket）
+    location /ws {
+        proxy_pass         http://127.0.0.1:32002;
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade    $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   Host       $host;
+        proxy_read_timeout 3600s;
+    }
+}
